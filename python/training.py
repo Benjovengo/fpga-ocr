@@ -88,26 +88,13 @@ def load_mnist():
     )
 
     if mnist_downloaded:
-        print(
-            f"MNIST dataset already available in: "
-            f"{DATA_DIR}"
-        )
+        print(f"MNIST dataset already available in: {DATA_DIR}")
     else:
-        print(
-            f"MNIST dataset not found. Downloading to: "
-            f"{DATA_DIR}"
-        )
+        print(f"MNIST dataset not found. Downloading to: {DATA_DIR}")
 
-    mnist = MNIST(
-        root=DATA_DIR,
-        train=True,
-        download=True,
-    )
+    mnist = MNIST(root=DATA_DIR,train=True,download=True)
 
-    print(
-        f"MNIST training samples: "
-        f"{len(mnist)}"
-    )
+    print(f"MNIST training samples: {len(mnist)}")
 
     return mnist
 
@@ -152,22 +139,12 @@ def create_training_csv(mnist):
         for i in range(784)
     ]
 
-    train_df = pd.DataFrame(
-        pixels,
-        columns=pixel_columns,
-    )
+    train_df = pd.DataFrame(pixels,columns=pixel_columns)
 
     # The label must be the first CSV column.
-    train_df.insert(
-        0,
-        "label",
-        labels,
-    )
+    train_df.insert(0,"label",labels)
 
-    train_df.to_csv(
-        TRAIN_FILE,
-        index=False,
-    )
+    train_df.to_csv(TRAIN_FILE,index=False)
 
     print(f"Created: {TRAIN_FILE}")
     print(f"Samples: {num_samples}")
@@ -204,25 +181,14 @@ def load_data(filepath):
 
     labels = data["label"].values
 
-    pixels = data.drop(
-        "label",
-        axis=1,
-    ).values
+    pixels = data.drop("label",axis=1).values
 
     # Convert grayscale MNIST pixels into binary input values.
-    pixels = (
-        pixels > 127
-    ).astype(np.float32)
+    pixels = (pixels > 127).astype(np.float32)
 
-    pixels_tensor = torch.tensor(
-        pixels,
-        dtype=torch.float32,
-    )
+    pixels_tensor = torch.tensor(pixels,dtype=torch.float32)
 
-    labels_tensor = torch.tensor(
-        labels,
-        dtype=torch.long,
-    )
+    labels_tensor = torch.tensor(labels,dtype=torch.long)
 
     return pixels_tensor, labels_tensor
 
@@ -231,11 +197,7 @@ def load_data(filepath):
 # Split Data into Training and Test Sets
 # =============================================================================
 
-def split_data(
-    X,
-    y,
-    train_ratio=0.8,
-):
+def split_data(X,y,train_ratio=0.8):
     """
     Split the dataset into training and test datasets.
 
@@ -243,34 +205,20 @@ def split_data(
     datasets do not contain overlapping samples.
 
     Args:
-        X:
-            Input feature tensor.
-
-        y:
-            Label tensor.
-
-        train_ratio:
-            Fraction of the complete dataset used for training.
+        X:           Input feature tensor.
+        y:           Label tensor.
+        train_ratio: Fraction of the complete dataset used for training.
 
     Returns:
-        X_train:
-            Training input samples.
-
-        X_test:
-            Test input samples.
-
-        y_train:
-            Training labels.
-
-        y_test:
-            Test labels.
+        X_train: Training input samples.
+        X_test:  Test input samples.
+        y_train: Training labels.
+        y_test:  Test labels.
     """
 
     total_samples = X.shape[0]
 
-    train_size = int(
-        total_samples * train_ratio
-    )
+    train_size = int(total_samples * train_ratio)
 
     indices = torch.randperm(
         total_samples
@@ -285,32 +233,12 @@ def split_data(
     X_test = X[test_indices]
     y_test = y[test_indices]
 
-    print(
-        f"Training data size   : "
-        f"{len(X_train)}"
-    )
+    print(f"Training data size   : {len(X_train)}")
+    print(f"Training labels size : {len(y_train)}")
+    print(f"Testing data size    : {len(X_test)}")
+    print(f"Testing labels size  : {len(y_test)}")
 
-    print(
-        f"Training labels size : "
-        f"{len(y_train)}"
-    )
-
-    print(
-        f"Testing data size    : "
-        f"{len(X_test)}"
-    )
-
-    print(
-        f"Testing labels size  : "
-        f"{len(y_test)}"
-    )
-
-    return (
-        X_train,
-        X_test,
-        y_train,
-        y_test,
-    )
+    return (X_train,X_test,y_train,y_test)
 
 
 # =============================================================================
@@ -326,11 +254,7 @@ class LinearLayer(nn.Module):
     weights.
     """
 
-    def __init__(
-        self,
-        in_features,
-        out_features,
-    ):
+    def __init__(self,in_features,out_features):
         super().__init__()
 
         self.weight = nn.Parameter(
@@ -347,10 +271,7 @@ class LinearLayer(nn.Module):
             nonlinearity="relu",
         )
 
-    def forward(
-        self,
-        x,
-    ):
+    def forward(self,x):
         return x @ self.weight
 
 
@@ -394,30 +315,13 @@ class NeuralNetwork(nn.Module):
     ):
         super().__init__()
 
-        self.layer1 = LinearLayer(
-            input_size,
-            64,
-        )
+        # Define the topology of the Neural Network
+        self.layer1 = LinearLayer(input_size,64)
+        self.layer2 = LinearLayer(64,64)
+        self.layer3 = LinearLayer(64,32)
+        self.layer4 = LinearLayer(32,10)
 
-        self.layer2 = LinearLayer(
-            64,
-            64,
-        )
-
-        self.layer3 = LinearLayer(
-            64,
-            32,
-        )
-
-        self.layer4 = LinearLayer(
-            32,
-            10,
-        )
-
-    def forward(
-        self,
-        x,
-    ):
+    def forward(self,x):
         x = self.layer1(x)
         x = torch.relu(x)
 
