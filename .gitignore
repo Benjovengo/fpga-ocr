@@ -30,6 +30,9 @@ build/parameters/*.npz
 # Generated test vectors
 build/vectors/*.csv
 
+# Downloaded data
+data/
+
 # Quartus
 quartus/db/
 quartus/incremental_db/
