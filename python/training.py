@@ -714,6 +714,15 @@ def main():
 
     save_model(model)
 
+    # Check min and max values of the trained floating-point weights.
+    print("Floating-point weights:")
+
+    for layer in model.children():
+        if isinstance(layer, LinearLayer):
+            print(
+                f"Layer weights min: {layer.weight.min().item():.6f}, "
+                f"max: {layer.weight.max().item():.6f}"
+            )
 
 # =============================================================================
 # Program Entry Point
