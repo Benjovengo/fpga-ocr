@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Virtual environments
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+
+# Python tooling
+.pytest_cache/
+.mypy_cache/
+
+# Downloaded market data
+data/raw/*.csv
+data/processed/*.csv
+
+# Generated models
+build/models/*.keras
+build/models/*.h5
+
+# Generated parameters
+build/parameters/*.csv
+build/parameters/*.npz
+
+# Generated test vectors
+build/vectors/*.csv
+
+# Quartus
+quartus/db/
+quartus/incremental_db/
+quartus/output_files/
+quartus/*.qws
+# Quartus generated files
+quartus/hft_nn/db/
+quartus/hft_nn/incremental_db/
+quartus/hft_nn/output_files/
+quartus/hft_nn/simulation/questa/
+quartus/hft_nn/*.qws
+
+# Questa
+work/
+transcript
+vsim.wlf
+quartus/hft_nn/simulation/questa/*.vho
