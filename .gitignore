@@ -44,9 +44,10 @@ quartus/hft_nn/incremental_db/
 quartus/hft_nn/output_files/
 quartus/hft_nn/simulation/questa/
 quartus/hft_nn/*.qws
+*.bak
 
 # Questa
 work/
 transcript
 vsim.wlf
-quartus/hft_nn/simulation/questa/*.vho
+quartus/simulation/questa/

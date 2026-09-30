@@ -120,10 +120,10 @@ module nn_core_tb;
     // =========================================================================
 
     localparam INPUT_IMAGE_FILE =
-        "data/input_image.mem";
+        "../../../data/input_image.mem";
 
     localparam EXPECTED_CLASS_FILE =
-        "data/expected_class.txt";
+        "../../../data/expected_class.txt";
 
     // =========================================================================
     // DUT Inputs

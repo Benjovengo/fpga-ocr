@@ -127,6 +127,8 @@ entity dense_layer is
         output_address : out natural range 0 to MAX_OUTPUTS - 1;
         -- Completed activation value
         output_data : out data_t;
+        -- Wide rescaled result before data_t saturation.
+        output_logit_data   : out logit_t;
 
         -- ---------------------------------------------------------------------
         -- Status
@@ -171,17 +173,19 @@ architecture rtl of dense_layer is
     -- Running sum for the current neuron
     signal accumulator : accumulator_t := (others => '0');
     -- Contribution of the current input/weight pair
-    signal mac_term : accumulator_t;
+    signal mac_term : accumulator_t := (others => '0');
     -- Accumulator value after adding mac_term
-    signal accumulator_next : accumulator_t;
+    signal accumulator_next : accumulator_t := (others => '0');
     -- Accumulator after fixed-point rescaling
-    signal shifted_value : accumulator_t;
+    signal shifted_value : accumulator_t := (others => '0');
     -- Value after saturation to data_t width
-    signal saturated_value : data_t;
+    signal saturated_value : data_t := (others => '0');
     -- Value after optional ReLU
-    signal relu_value : data_t;
+    signal relu_value : data_t := (others => '0');
     -- Final value selected for storage
-    signal final_output_value : data_t;
+    signal final_output_value : data_t := (others => '0');
+    -- Enable saturation only when the current neuron accumulator is complete.
+    signal saturate_enable : std_logic := '0';
 
 begin
     -- =============================================================================
@@ -215,27 +219,22 @@ begin
 
     -- process(binary_input_mode,input_data,weight_data)
     -- The other parameters are constants
-    process(all)
-
-        variable product : signed(DATA_WIDTH + WEIGHT_WIDTH - 1 downto 0);
-
+    --process(all)
+    process(binary_input_mode, input_data, weight_data)
+        variable product :
+            signed(DATA_WIDTH + WEIGHT_WIDTH - 1 downto 0);
     begin
-
         if binary_input_mode = '1' then
-
-            -- Layer 1 uses binary inputs
             if input_data = to_signed(1, DATA_WIDTH) then
                 mac_term <= resize(weight_data,ACCUMULATOR_WIDTH);
             else
                 mac_term <= (others => '0');
             end if;
-
         else
-            -- Layers 2 through 4 require signed fixed-point multiplication
             product := input_data * weight_data;
+
             mac_term <= resize(product,ACCUMULATOR_WIDTH);
         end if;
-
     end process;
 
     -- =============================================================================
@@ -246,17 +245,51 @@ begin
     -- =============================================================================
     -- Fixed-Point Rescaling
     -- =============================================================================
-    -- Quantized weights contain FRACTIONAL_BITS fractional bits
-    -- Restore the activation scale by performing an arithmetic right shift
+    --
+    -- Layer 1 uses binary inputs rather than Q1.14 activations.
+    --
+    -- For Layer 1:
+    --
+    --     binary input x Q1.14 weight -> Q1.14
+    --
+    -- Therefore the accumulator is already in Q1.14 format and must NOT be shifted.
+    --
+    -- For Layers 2 through 4:
+    --
+    --     Q1.14 activation x Q1.14 weight -> Q2.28
+    --
+    -- Therefore the accumulator must be shifted right by FRACTIONAL_BITS to restore
+    -- the Q1.14 activation representation.
+    process(binary_input_mode, accumulator)
+    begin
+        if binary_input_mode = '1' then
+            shifted_value <= accumulator;
+        else
+            shifted_value <= shift_right(accumulator,FRACTIONAL_BITS);
+        end if;
+    end process;
 
-    shifted_value <= shift_right(accumulator,FRACTIONAL_BITS);
+    -- Preserve the rescaled accumulator at full width for Layer 4.
+    --
+    -- nn_core uses this output only for the final layer.
+    output_logit_data <= shifted_value;
 
     -- =============================================================================
     -- Saturation
     -- =============================================================================
-    -- Saturation prevents signed overflow when reducing the wide accumulator
-    -- back to DATA_WIDTH bits
-    saturate_inst : entity work.saturate port map (data_in  => shifted_value,data_out => saturated_value);
+    --
+    -- Saturate the rescaled accumulator to DATA_WIDTH before applying ReLU.
+    --
+    -- The saturation block is enabled only when the complete neuron result is
+    -- available in STORE_OUTPUT.
+    saturate_enable <= '1' when state = STORE_OUTPUT else '0';
+
+    saturate_inst : entity work.saturate
+        port map (
+            enable   => saturate_enable,
+            data_in  => shifted_value,
+            data_out => saturated_value
+        );
 
     -- =============================================================================
     -- ReLU

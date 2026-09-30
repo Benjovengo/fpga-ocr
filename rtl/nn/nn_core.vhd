@@ -162,7 +162,7 @@ architecture rtl of nn_core is
     signal layer1_buffer : data_array_t(0 to LAYER1_OUTPUTS - 1) := (others => (others => '0'));
     signal layer2_buffer : data_array_t(0 to LAYER2_OUTPUTS - 1) := (others => (others => '0'));
     signal layer3_buffer : data_array_t(0 to LAYER3_OUTPUTS - 1) := (others => (others => '0'));
-    signal layer4_buffer : data_array_t(0 to LAYER4_OUTPUTS - 1) := (others => (others => '0'));
+    signal layer4_buffer : logit_array_t(0 to LAYER4_OUTPUTS - 1) := (others => (others => '0'));
 
     -- =============================================================================
     -- Shared Dense-Layer Engine
@@ -195,6 +195,7 @@ architecture rtl of nn_core is
     signal dense_output_we : std_logic;
     signal dense_output_address : natural range 0 to LAYER1_OUTPUTS - 1;
     signal dense_output_data : data_t;
+    signal dense_output_logit_data : logit_t;
 
     -- =============================================================================
     -- Weight ROMs
@@ -244,8 +245,8 @@ begin
     -- =============================================================================
     layer1_rom : entity work.weight_rom
         generic map (
-            DEPTH => LAYER1_INPUTS * LAYER1_OUTPUTS,
-            INIT_FILE => "model/quartus_mif/matrix1.mif"
+            LAYER_ID => 1,
+            DEPTH => LAYER1_INPUTS * LAYER1_OUTPUTS
         )
         port map (
             clk => clk,
@@ -258,8 +259,8 @@ begin
     -- =============================================================================
     layer2_rom : entity work.weight_rom
         generic map (
-            DEPTH => LAYER2_INPUTS * LAYER2_OUTPUTS,
-            INIT_FILE => "model/quartus_mif/matrix2.mif"
+            LAYER_ID => 2,
+            DEPTH => LAYER2_INPUTS * LAYER2_OUTPUTS
         )
         port map (
             clk => clk,
@@ -272,8 +273,8 @@ begin
     -- =============================================================================
     layer3_rom : entity work.weight_rom
         generic map (
-            DEPTH => LAYER3_INPUTS * LAYER3_OUTPUTS,
-            INIT_FILE => "model/quartus_mif/matrix3.mif"
+            LAYER_ID => 3,
+            DEPTH => LAYER3_INPUTS * LAYER3_OUTPUTS
         )
         port map (
             clk => clk,
@@ -286,8 +287,8 @@ begin
     -- =============================================================================
     layer4_rom : entity work.weight_rom
         generic map (
-            DEPTH => LAYER4_INPUTS * LAYER4_OUTPUTS,
-            INIT_FILE => "model/quartus_mif/matrix4.mif"
+            LAYER_ID => 4,
+            DEPTH => LAYER4_INPUTS * LAYER4_OUTPUTS
         )
         port map (
             clk => clk,
@@ -316,8 +317,9 @@ begin
             weight_address => dense_weight_address,
             weight_data => dense_weight_data,
             output_write_enable => dense_output_we,
-            output_address => dense_output_address,
-            output_data => dense_output_data,
+            output_address      => dense_output_address,
+            output_data         => dense_output_data,
+            output_logit_data   => dense_output_logit_data,
             busy => dense_busy,
             done => dense_done
         );
@@ -348,16 +350,29 @@ begin
     begin
         dense_input_data <= (others => '0');
         input_buffer_address <= 0;
+
         case state is
             when LAYER1 =>
-                input_buffer_address <= dense_input_address;
-                dense_input_data <= input_buffer_data;
+                if dense_input_address < LAYER1_INPUTS then
+                    input_buffer_address <= dense_input_address;
+                    dense_input_data <= input_buffer_data;
+                end if;
+
             when LAYER2 =>
-                dense_input_data <= layer1_buffer(dense_input_address);
+                if dense_input_address < LAYER2_INPUTS then
+                    dense_input_data <= layer1_buffer(dense_input_address);
+                end if;
+
             when LAYER3 =>
-                dense_input_data <= layer2_buffer(dense_input_address);
+                if dense_input_address < LAYER3_INPUTS then
+                    dense_input_data <= layer2_buffer(dense_input_address);
+                end if;
+
             when LAYER4 =>
-                dense_input_data <= layer3_buffer(dense_input_address);
+                if dense_input_address < LAYER4_INPUTS then
+                    dense_input_data <= layer3_buffer(dense_input_address);
+                end if;
+
             when others =>
                 dense_input_data <= (others => '0');
         end case;
@@ -376,15 +391,28 @@ begin
         layer2_weight_address <= 0;
         layer3_weight_address <= 0;
         layer4_weight_address <= 0;
+
         case state is
             when LAYER1 =>
-                layer1_weight_address <= dense_weight_address;
+                if dense_weight_address < (LAYER1_INPUTS * LAYER1_OUTPUTS) then
+                    layer1_weight_address <= dense_weight_address;
+                end if;
+
             when LAYER2 =>
-                layer2_weight_address <= dense_weight_address;
+                if dense_weight_address < (LAYER2_INPUTS * LAYER2_OUTPUTS) then
+                    layer2_weight_address <= dense_weight_address;
+                end if;
+
             when LAYER3 =>
-                layer3_weight_address <= dense_weight_address;
+                if dense_weight_address < (LAYER3_INPUTS * LAYER3_OUTPUTS) then
+                    layer3_weight_address <= dense_weight_address;
+                end if;
+
             when LAYER4 =>
-                layer4_weight_address <= dense_weight_address;
+                if dense_weight_address < (LAYER4_INPUTS * LAYER4_OUTPUTS) then
+                    layer4_weight_address <= dense_weight_address;
+                end if;
+
             when others =>
                 null;
         end case;
@@ -424,16 +452,21 @@ begin
                 layer2_buffer <= (others => (others => '0'));
                 layer3_buffer <= (others => (others => '0'));
                 layer4_buffer <= (others => (others => '0'));
+
             elsif dense_output_we = '1' then
                 case state is
                     when LAYER1 =>
                         layer1_buffer(dense_output_address) <= dense_output_data;
+
                     when LAYER2 =>
                         layer2_buffer(dense_output_address) <= dense_output_data;
+
                     when LAYER3 =>
                         layer3_buffer(dense_output_address) <= dense_output_data;
+
                     when LAYER4 =>
-                        layer4_buffer(dense_output_address) <= dense_output_data;
+                        layer4_buffer(dense_output_address) <= dense_output_logit_data;
+
                     when others =>
                         null;
                 end case;
