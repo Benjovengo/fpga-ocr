@@ -291,7 +291,7 @@ def save_weights_as_hex(quantized_state):
         flattened_weights = weight_matrix.flatten().cpu().numpy()
 
         # Generate the output file inside the model directory.
-        output_file = MODEL_DIR / f"matrix{idx}.mif"
+        output_file = MODEL_DIR / f"matrix{idx}_raw_hex.mif"
 
         # Open the corresponding file for saving the weights.
         with open(output_file, "w") as file:
