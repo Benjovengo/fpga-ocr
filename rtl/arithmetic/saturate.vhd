@@ -39,19 +39,11 @@ end entity saturate;
 
 architecture rtl of saturate is
 
-    -- Wide limits are used for comparisons against accumulator_t.
-    constant MAX_ACC_VALUE : accumulator_t :=
-        to_signed((2 ** (DATA_WIDTH - 1)) - 1,ACCUMULATOR_WIDTH);
-
-    constant MIN_ACC_VALUE : accumulator_t :=
-        to_signed(
-            -(2 ** (DATA_WIDTH - 1)),
-            ACCUMULATOR_WIDTH
-        );
-
-    -- DATA_WIDTH limits are used for the actual saturated output values.
+    -- Wide limits are used for comparisons against `accumulator_t`
+    constant MAX_ACC_VALUE : accumulator_t := to_signed((2 ** (DATA_WIDTH - 1)) - 1,ACCUMULATOR_WIDTH);
+    constant MIN_ACC_VALUE : accumulator_t := to_signed(-(2 ** (DATA_WIDTH - 1)),ACCUMULATOR_WIDTH);
+    -- `DATA_WIDTH` limits are used for the actual saturated output values
     constant MAX_DATA_VALUE : data_t := to_signed((2 ** (DATA_WIDTH - 1)) - 1,DATA_WIDTH);
-
     constant MIN_DATA_VALUE : data_t := to_signed(-(2 ** (DATA_WIDTH - 1)),DATA_WIDTH);
 
 begin
@@ -62,15 +54,14 @@ begin
         -- the completed accumulator value is ready for post-processing.
         if enable = '0' then
             data_out <= (others => '0');
+        elsif is_x(std_logic_vector(data_in)) then
+            data_out <= (others => '0');
         elsif data_in > MAX_ACC_VALUE then
             data_out <= MAX_DATA_VALUE;
         elsif data_in < MIN_ACC_VALUE then
             data_out <= MIN_DATA_VALUE;
         else
-            data_out <= resize(
-                data_in,
-                DATA_WIDTH
-            );
+            data_out <= resize(data_in,DATA_WIDTH);
         end if;
     end process;
 

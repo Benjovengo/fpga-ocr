@@ -4,12 +4,14 @@ use ieee.numeric_std.all;
 
 use work.nn_config_pkg.all;
 use work.nn_types_pkg.all;
+use work.nn_weight_init_pkg.all;
 
 -- =============================================================================
 -- Neural-Network Core
 -- =============================================================================
 --
--- Top-level controller for the sequential MNIST neural-network implementation.
+-- Top-level controller for the parallel-output MNIST neural-network
+-- implementation.
 --
 -- Only ONE image is processed at a time.
 --
@@ -132,9 +134,9 @@ architecture rtl of nn_core is
         LAYER2,
         LAYER3,
         LAYER4,
+        START_ARGMAX,
         ARGMAX_STATE,
-        OUTPUT_RESULT
-    );
+        OUTPUT_RESULT);
     signal state : state_t := IDLE;
 
     -- =============================================================================
@@ -175,27 +177,38 @@ architecture rtl of nn_core is
     --     ReLU enable
     --     binary-input optimization
     signal dense_start : std_logic := '0';
-    signal dense_busy : std_logic;
     signal dense_done : std_logic;
+
     signal dense_input_count : natural range 1 to LAYER1_INPUTS := LAYER1_INPUTS;
     signal dense_output_count : natural range 1 to LAYER1_OUTPUTS := LAYER1_OUTPUTS;
-    -- Enable ReLU for Layers 1 through 3
     signal dense_apply_relu : std_logic := '1';
-    -- Enable the multiplier bypass only for Layer 1
     signal dense_binary_input_mode : std_logic := '0';
-    -- Address of the current dense-layer input
     signal dense_input_address : natural range 0 to LAYER1_INPUTS - 1;
-    -- Activation connected to the shared dense-layer input
     signal dense_input_data : data_t;
-    -- Address generated for the active weight ROM
-    signal dense_weight_address : natural range 0 to (LAYER1_INPUTS * LAYER1_OUTPUTS) - 1;
-    -- Weight returned by the currently active ROM
-    signal dense_weight_data : weight_t;
-    -- Dense-layer output write interface
-    signal dense_output_we : std_logic;
-    signal dense_output_address : natural range 0 to LAYER1_OUTPUTS - 1;
-    signal dense_output_data : data_t;
-    signal dense_output_logit_data : logit_t;
+    -- All output-neuron weights for the current input.
+    signal dense_weight_data : weight_array_t(0 to LAYER1_OUTPUTS - 1) := (others => (others => '0'));
+    -- All layer outputs become available together.
+    signal dense_output_data : data_array_t(0 to LAYER1_OUTPUTS - 1);
+    signal dense_output_logit_data : logit_array_t(0 to LAYER1_OUTPUTS - 1);
+
+
+    -- =============================================================================
+    -- Layer-Specific Weight-ROM Input Indexes
+    -- =============================================================================
+    --
+    -- dense_input_address uses the range required by the largest layer:
+    --
+    --     0 .. 783
+    --
+    -- Each weight ROM, however, has a smaller legal input-index range.
+    --
+    -- Dedicated signals prevent a value belonging to another layer from being
+    -- applied to an inactive ROM during FSM transitions.
+    --
+    signal layer1_weight_input_index : natural range 0 to LAYER1_INPUTS - 1 := 0;
+    signal layer2_weight_input_index : natural range 0 to LAYER2_INPUTS - 1 := 0;
+    signal layer3_weight_input_index : natural range 0 to LAYER3_INPUTS - 1 := 0;
+    signal layer4_weight_input_index : natural range 0 to LAYER4_INPUTS - 1 := 0;
 
     -- =============================================================================
     -- Weight ROMs
@@ -204,14 +217,10 @@ architecture rtl of nn_core is
     --
     -- The shared dense engine selects the appropriate ROM according to the
     -- current top-level FSM state
-    signal layer1_weight_address : natural range 0 to (LAYER1_INPUTS * LAYER1_OUTPUTS) - 1 := 0;
-    signal layer2_weight_address : natural range 0 to (LAYER2_INPUTS * LAYER2_OUTPUTS) - 1 := 0;
-    signal layer3_weight_address : natural range 0 to (LAYER3_INPUTS * LAYER3_OUTPUTS) - 1 := 0;
-    signal layer4_weight_address : natural range 0 to (LAYER4_INPUTS * LAYER4_OUTPUTS) - 1 := 0;
-    signal layer1_weight_data : weight_t;
-    signal layer2_weight_data : weight_t;
-    signal layer3_weight_data : weight_t;
-    signal layer4_weight_data : weight_t;
+    signal layer1_weight_data : weight_array_t(0 to LAYER1_OUTPUTS - 1);
+    signal layer2_weight_data : weight_array_t(0 to LAYER2_OUTPUTS - 1);
+    signal layer3_weight_data : weight_array_t(0 to LAYER3_OUTPUTS - 1);
+    signal layer4_weight_data : weight_array_t(0 to LAYER4_OUTPUTS - 1);
 
     -- =============================================================================
     -- ArgMax
@@ -240,65 +249,74 @@ begin
             read_data => input_buffer_data
         );
 
+        -- =============================================================================
+    -- Layer 1 Parallel Weight ROM
     -- =============================================================================
-    -- Layer 1 Weight ROM
-    -- =============================================================================
+
     layer1_rom : entity work.weight_rom
         generic map (
-            LAYER_ID => 1,
-            DEPTH => LAYER1_INPUTS * LAYER1_OUTPUTS
+            INPUT_COUNT => LAYER1_INPUTS,
+            OUTPUT_COUNT => LAYER1_OUTPUTS,
+            INIT_FILE => LAYER1_WEIGHT_INIT_FILE,
+            SIM_INIT_FILE => LAYER1_WEIGHT_SIM_FILE
         )
         port map (
-            clk => clk,
-            address => layer1_weight_address,
-            data_out => layer1_weight_data
+            input_index => layer1_weight_input_index,
+            weights => layer1_weight_data
         );
 
     -- =============================================================================
-    -- Layer 2 Weight ROM
+    -- Layer 2 Parallel Weight ROM
     -- =============================================================================
+
     layer2_rom : entity work.weight_rom
         generic map (
-            LAYER_ID => 2,
-            DEPTH => LAYER2_INPUTS * LAYER2_OUTPUTS
+            INPUT_COUNT => LAYER2_INPUTS,
+            OUTPUT_COUNT => LAYER2_OUTPUTS,
+            INIT_FILE => LAYER2_WEIGHT_INIT_FILE,
+            SIM_INIT_FILE => LAYER2_WEIGHT_SIM_FILE
         )
         port map (
-            clk => clk,
-            address => layer2_weight_address,
-            data_out => layer2_weight_data
+            input_index => layer2_weight_input_index,
+            weights => layer2_weight_data
         );
 
     -- =============================================================================
-    -- Layer 3 Weight ROM
+    -- Layer 3 Parallel Weight ROM
     -- =============================================================================
+
     layer3_rom : entity work.weight_rom
         generic map (
-            LAYER_ID => 3,
-            DEPTH => LAYER3_INPUTS * LAYER3_OUTPUTS
+            INPUT_COUNT => LAYER3_INPUTS,
+            OUTPUT_COUNT => LAYER3_OUTPUTS,
+            INIT_FILE => LAYER3_WEIGHT_INIT_FILE,
+            SIM_INIT_FILE => LAYER3_WEIGHT_SIM_FILE
         )
         port map (
-            clk => clk,
-            address => layer3_weight_address,
-            data_out => layer3_weight_data
+            input_index => layer3_weight_input_index,
+            weights => layer3_weight_data
         );
 
     -- =============================================================================
-    -- Layer 4 Weight ROM
+    -- Layer 4 Parallel Weight ROM
     -- =============================================================================
+
     layer4_rom : entity work.weight_rom
-        generic map (
-            LAYER_ID => 4,
-            DEPTH => LAYER4_INPUTS * LAYER4_OUTPUTS
-        )
-        port map (
-            clk => clk,
-            address => layer4_weight_address,
-            data_out => layer4_weight_data
-        );
+    generic map (
+        INPUT_COUNT => LAYER4_INPUTS,
+        OUTPUT_COUNT => LAYER4_OUTPUTS,
+        INIT_FILE => LAYER4_WEIGHT_INIT_FILE,
+        SIM_INIT_FILE => LAYER4_WEIGHT_SIM_FILE
+    )
+    port map (
+        input_index => layer4_weight_input_index,
+        weights => layer4_weight_data
+    );
 
     -- =============================================================================
-    -- Shared Dense-Layer Engine
+    -- Parallel Dense-Layer Engine
     -- =============================================================================
+
     dense_layer_inst : entity work.dense_layer
         generic map (
             MAX_INPUTS => LAYER1_INPUTS,
@@ -314,13 +332,10 @@ begin
             binary_input_mode => dense_binary_input_mode,
             input_address => dense_input_address,
             input_data => dense_input_data,
-            weight_address => dense_weight_address,
             weight_data => dense_weight_data,
-            output_write_enable => dense_output_we,
-            output_address      => dense_output_address,
-            output_data         => dense_output_data,
-            output_logit_data   => dense_output_logit_data,
-            busy => dense_busy,
+            output_data => dense_output_data,
+            output_logit_data => dense_output_logit_data,
+            busy => open,
             done => dense_done
         );
 
@@ -338,6 +353,61 @@ begin
         );
 
     -- =============================================================================
+    -- Weight-ROM Input-Index Multiplexer
+    -- =============================================================================
+    --
+    -- Only the ROM belonging to the active neural-network layer receives the
+    -- shared dense-layer input address.
+    --
+    -- All inactive ROMs remain at input index zero.
+    --
+    -- This is required because dense_input_address is sized for Layer 1 and can
+    -- therefore contain values that are outside the legal index range of the
+    -- smaller Layer 2, Layer 3, and Layer 4 ROMs.
+    --
+    -- Example:
+    --
+    --     dense_input_address = 63
+    --
+    -- is valid for Layer 2 and Layer 3, but invalid for Layer 4, whose range is:
+    --
+    --     0 .. 31
+    --
+    process(all)
+    begin
+        -- Safe defaults for all inactive ROMs.
+        layer1_weight_input_index <= 0;
+        layer2_weight_input_index <= 0;
+        layer3_weight_input_index <= 0;
+        layer4_weight_input_index <= 0;
+
+        case state is
+            when LAYER1 =>
+                if dense_input_address < LAYER1_INPUTS then
+                    layer1_weight_input_index <= dense_input_address;
+                end if;
+
+            when LAYER2 =>
+                if dense_input_address < LAYER2_INPUTS then
+                    layer2_weight_input_index <= dense_input_address;
+                end if;
+
+            when LAYER3 =>
+                if dense_input_address < LAYER3_INPUTS then
+                    layer3_weight_input_index <= dense_input_address;
+                end if;
+
+            when LAYER4 =>
+                if dense_input_address < LAYER4_INPUTS then
+                    layer4_weight_input_index <= dense_input_address;
+                end if;
+
+            when others => null;
+        end case;
+
+    end process;
+
+    -- =============================================================================
     -- Dense-Layer Input Multiplexer
     -- =============================================================================
     --
@@ -346,7 +416,7 @@ begin
     --
     -- Layer 1:       one-bit image buffer
     -- Layers 2 .. 4: read previously calculated fixed-point activations
-    process(state, dense_input_address, input_buffer_data, layer1_buffer, layer2_buffer, layer3_buffer)
+    process(all)
     begin
         dense_input_data <= (others => '0');
         input_buffer_address <= 0;
@@ -374,104 +444,43 @@ begin
                 end if;
 
             when others =>
-                dense_input_data <= (others => '0');
-        end case;
-    end process;
-
-    -- =============================================================================
-    -- Weight-ROM Address Multiplexer
-    -- =============================================================================
-    -- Only the ROM corresponding to the active layer receives
-    -- dense_weight_address
-    --
-    -- All inactive ROM addresses remain zero
-    process(state, dense_weight_address)
-    begin
-        layer1_weight_address <= 0;
-        layer2_weight_address <= 0;
-        layer3_weight_address <= 0;
-        layer4_weight_address <= 0;
-
-        case state is
-            when LAYER1 =>
-                if dense_weight_address < (LAYER1_INPUTS * LAYER1_OUTPUTS) then
-                    layer1_weight_address <= dense_weight_address;
-                end if;
-
-            when LAYER2 =>
-                if dense_weight_address < (LAYER2_INPUTS * LAYER2_OUTPUTS) then
-                    layer2_weight_address <= dense_weight_address;
-                end if;
-
-            when LAYER3 =>
-                if dense_weight_address < (LAYER3_INPUTS * LAYER3_OUTPUTS) then
-                    layer3_weight_address <= dense_weight_address;
-                end if;
-
-            when LAYER4 =>
-                if dense_weight_address < (LAYER4_INPUTS * LAYER4_OUTPUTS) then
-                    layer4_weight_address <= dense_weight_address;
-                end if;
-
-            when others =>
                 null;
         end case;
     end process;
 
+
+
     -- =============================================================================
-    -- Weight-ROM Data Multiplexer
+    -- Parallel Weight-Vector Multiplexer
     -- =============================================================================
-    process(state, layer1_weight_data, layer2_weight_data, layer3_weight_data, layer4_weight_data)
+    process(all)
     begin
-        dense_weight_data <= (others => '0');
+        dense_weight_data <= (others => (others => '0'));
+
         case state is
             when LAYER1 =>
-                dense_weight_data <= layer1_weight_data;
+                for i in 0 to LAYER1_OUTPUTS - 1 loop
+                    dense_weight_data(i) <= layer1_weight_data(i);
+                end loop;
+
             when LAYER2 =>
-                dense_weight_data <= layer2_weight_data;
+                for i in 0 to LAYER2_OUTPUTS - 1 loop
+                    dense_weight_data(i) <= layer2_weight_data(i);
+                end loop;
+
             when LAYER3 =>
-                dense_weight_data <= layer3_weight_data;
+                for i in 0 to LAYER3_OUTPUTS - 1 loop
+                    dense_weight_data(i) <= layer3_weight_data(i);
+                end loop;
+
             when LAYER4 =>
-                dense_weight_data <= layer4_weight_data;
-            when others =>
-                dense_weight_data <= (others => '0');
+                for i in 0 to LAYER4_OUTPUTS - 1 loop
+                    dense_weight_data(i) <= layer4_weight_data(i);
+                end loop;
+
+            when others => null;
         end case;
-    end process;
 
-    -- =============================================================================
-    -- Store Dense-Layer Outputs
-    -- =============================================================================
-    -- The shared dense engine generates one completed neuron value at a time
-    --
-    -- Store that value into the buffer corresponding to the active layer
-    process(clk)
-    begin
-        if rising_edge(clk) then
-            if rst = '1' then
-                layer1_buffer <= (others => (others => '0'));
-                layer2_buffer <= (others => (others => '0'));
-                layer3_buffer <= (others => (others => '0'));
-                layer4_buffer <= (others => (others => '0'));
-
-            elsif dense_output_we = '1' then
-                case state is
-                    when LAYER1 =>
-                        layer1_buffer(dense_output_address) <= dense_output_data;
-
-                    when LAYER2 =>
-                        layer2_buffer(dense_output_address) <= dense_output_data;
-
-                    when LAYER3 =>
-                        layer3_buffer(dense_output_address) <= dense_output_data;
-
-                    when LAYER4 =>
-                        layer4_buffer(dense_output_address) <= dense_output_logit_data;
-
-                    when others =>
-                        null;
-                end case;
-            end if;
-        end if;
     end process;
 
     -- =============================================================================
@@ -517,6 +526,9 @@ begin
                     when LAYER1 =>
                         input_ready <= '0';
                         if dense_done = '1' then
+                            for i in 0 to LAYER1_OUTPUTS - 1 loop
+                                layer1_buffer(i) <= dense_output_data(i);
+                            end loop;
                             dense_input_count <= LAYER2_INPUTS;
                             dense_output_count <= LAYER2_OUTPUTS;
                             dense_apply_relu <= '1';
@@ -526,6 +538,9 @@ begin
                         end if;
                     when LAYER2 =>
                         if dense_done = '1' then
+                            for i in 0 to LAYER2_OUTPUTS - 1 loop
+                                layer2_buffer(i) <= dense_output_data(i);
+                            end loop;
                             dense_input_count <= LAYER3_INPUTS;
                             dense_output_count <= LAYER3_OUTPUTS;
                             dense_apply_relu <= '1';
@@ -535,6 +550,9 @@ begin
                         end if;
                     when LAYER3 =>
                         if dense_done = '1' then
+                            for i in 0 to LAYER3_OUTPUTS - 1 loop
+                                layer3_buffer(i) <= dense_output_data(i);
+                            end loop;
                             dense_input_count <= LAYER4_INPUTS;
                             dense_output_count <= LAYER4_OUTPUTS;
                             dense_apply_relu <= '0';
@@ -544,9 +562,17 @@ begin
                         end if;
                     when LAYER4 =>
                         if dense_done = '1' then
-                            argmax_start <= '1';
-                            state <= ARGMAX_STATE;
+                            for i in 0 to LAYER4_OUTPUTS - 1 loop
+                                layer4_buffer(i) <= dense_output_logit_data(i);
+                            end loop;
+                            state <= START_ARGMAX;
                         end if;
+                    when START_ARGMAX =>
+                        -- Layer-4 buffer was written on the previous clock.
+                        --
+                        -- ArgMax can now safely consume the new logits.
+                        argmax_start <= '1';
+                        state <= ARGMAX_STATE;
                     when ARGMAX_STATE =>
                         if argmax_done = '1' then
                             predicted_digit <= argmax_result;

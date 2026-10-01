@@ -35,5 +35,7 @@ package nn_types_pkg is
     type data_array_t is array (natural range <>) of data_t;
     -- Generic array of weights.
     type weight_array_t is array (natural range <>) of weight_t;
+    -- Array of wide accumulators used by the parallel dense-layer engine.
+    type accumulator_array_t is array (natural range <>) of accumulator_t;
 
 end package nn_types_pkg;
